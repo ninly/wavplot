@@ -11,7 +11,7 @@ Dependencies:
 
 Given presence of the above, just clone the repo or copy the wavplot (Python 2.7) file to your machine. Edit execute permissions if necessary, and call it (see examples below).
 
-![Example wavplot output](https://raw.github.com/ninly/wavplot/example.png)
+![Example wavplot output](./example.png)
 
 ## Usage
 
