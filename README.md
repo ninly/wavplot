@@ -31,7 +31,7 @@ Read and plot samples 10-50 (inclusive) of all channels in myfile.wav, and write
 
     $ ./wavplot --channels 2 myfile.wav
 
-Read and plot all of channel 2 (of 2) of myfile.wav, and write to plot.png.
+Read and plot all of channel 2 of myfile.wav, and write to plot.png. Channel numbers begin with 1 (i.e., a stereo file has channels 1 and 2).
 
     $ ./wavplot --start 100 --end 200 --channels 2 3 5 myfile.wav
 
