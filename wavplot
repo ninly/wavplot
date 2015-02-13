@@ -1,0 +1,193 @@
+#!/usr/bin/env python
+#
+
+import matplotlib.pyplot as plt
+import numpy as np
+import struct
+import wave
+import os.path
+from argparse import ArgumentParser, RawDescriptionHelpFormatter
+
+class AppError(Exception):
+    def __init__(s, error=''):
+        s.msg = error
+    def __str__(s):
+        return repr(s.msg)
+
+
+class PlotWave():
+    """
+    Utilities for reading, modeling, and plotting data from a WAV file.
+    """
+    def __init__(s, args):
+        s.args = args
+        s.defaults = {}
+        s.defaults['verbose'] = 0
+        if s.args.verbose >= 2:
+            np.set_printoptions(threshold = np.nan)
+
+
+    def readWavFile(s, fn, start, end):
+        """
+        Read WAV data and convert it to an array (or arrays, if 2 or more
+        channels) of sample values.
+        """
+
+        wavfile = os.path.basename(fn)
+        af = wave.open(fn,'r')
+
+        (nchannels, sampwidth, framerate, nframes, comptype, compname) = af.getparams()
+
+        t = """
+        Number of Channels: %s
+        Width: %s
+        Frequency: %s
+        Number of Frames: %s
+        Compression Type: %s (%s)
+        """%(nchannels,sampwidth,framerate,nframes,comptype,compname)
+
+        if s.args.verbose >= 1: print(t)
+
+        fmts = (None, "=B", "<"+"h"*nchannels, None, "=l")
+        fmt = fmts[sampwidth]
+        dcs  = (None, 128, 0, None, 0)
+        dc = dcs[sampwidth]
+
+        sigs = [ [] for n in range(nchannels) ]     # temp list container for sample data
+        np_sigs = [np.array([], 'int16')]*nchannels # for later conversion to numpy array
+
+        # Extract WAV audio data
+        if s.args.end > nframes:
+            raise AppError(wavfile+" does not have "+str(s.args.end+1)+" frames.")
+
+        if end < start:
+            raise AppError("end must come after start.")
+
+        if (start == 0) and (end == 0):
+            s.args.end = nframes - 1
+
+            if s.args.verbose >= 1: print("Reading entire file.")
+            for i in xrange(nframes):
+                frame = af.readframes(1)
+                frame = struct.unpack(fmt, frame)
+                for channel in range(nchannels):
+                    sigs[channel].append(frame[channel])
+
+        else:
+            nsamples = end - start + 1
+            if s.args.verbose >= 1: print("Reading "+str(nsamples)+" samples, "+str(start)+" to "+str(end)+".")
+            af.setpos(args.start)
+            for i in range(nsamples):
+                frame = af.readframes(1)
+                frame = struct.unpack(fmt, frame)
+                for channel in range(nchannels):
+                    sigs[channel].append(frame[channel])
+
+        af.close()
+
+        # Convert list of bytes to numpy array for matplotlib
+        for chan in range(nchannels):
+            np_sigs[chan] = np.array(sigs[chan], 'int16')
+
+        if s.args.verbose >= 1:
+            for channel in range(nchannels):
+                print("Channel "+str(channel+1)+": "+str(len(sigs[0]))+" samples read.")
+                if s.args.verbose >= 2:     # Display value of all samples
+                    for arr in np_sigs:
+                        print(arr)
+
+        return np_sigs
+
+    def plotWaveform(s, fn, outfile, signal, show):
+        """
+        Plot an array of sample values supplied by readWavFile on screen or in a .png file.
+        """
+        wavfile = os.path.basename(fn)
+
+        if not s.args.channels:     # Channels not specified: plot them all
+            chan_nums = range(len(signal))
+        else:                       # Plot the specified channels, if they exist
+            chan_nums = s.args.channels
+            for n in chan_nums:
+                if n not in range(len(signal)):
+                    raise AppError(wavfile+' does not have a channel '+str(n)+' to plot.')
+
+        sampnums = np.arange(s.args.start, s.args.end+1)
+        nchans = len(chan_nums)
+        if len(chan_nums) == 1: # Only one channel to plot
+            fig, chan = plt.subplots(nchans, 1, sharex=True, sharey=True)
+            chan.set_title(wavfile)
+            chan.plot(sampnums, signal[chan_nums[0]])
+            chan.set_ylabel('Value (channel '+str(chan_nums[0]+1)+')')
+            ticks = chan.yaxis.get_major_ticks()
+            for tick in ticks:
+                tick.label.set_fontsize('small')
+            chan.set_xlabel('Sample Number')
+        else:   # More than one channel to plot
+            fig, chans = plt.subplots(nchans, 1, sharex=True, sharey=True)
+            chans[0].set_title(wavfile)
+            for i in range(len(chan_nums)):
+                chans[i].plot(sampnums, signal[chan_nums[i]-1])
+                chans[i].set_ylabel('Value (channel '+str(chan_nums[i]+1)+')')
+                ticks = chans[i].yaxis.get_major_ticks()
+                for tick in ticks:
+                    tick.label.set_fontsize('small')
+            chans[nchans-1].set_xlabel('Sample Number')
+            fig.subplots_adjust(hspace=0.08)
+        if show:
+            if s.args.verbose >= 1:
+                print("plotting waveform on screen")
+            plt.show()
+        else:
+            if s.args.verbose >= 1:
+                print("saving waveform plot to "+outfile)
+            plt.savefig(outfile)
+
+    def main(s):
+        try:
+            wavfile = s.args.filename
+            start = s.args.start
+            end = s.args.end
+            show = s.args.show
+            outfile = s.args.plotfile
+
+            if s.args.verbose >= 1:
+                print("Reading %s" % wavfile)
+            signals = s.readWavFile(wavfile, start, end)
+
+            s.plotWaveform(wavfile, outfile, signals, show)
+
+        # Handle <Ctrl-C> from user
+        #
+        except KeyboardInterrupt:
+            pass
+        except AppError as e:
+            print "Error: "+e.msg
+
+
+if __name__ == '__main__':
+    # Command line argument setup and initial processing
+    #
+    app_description = '''
+Plot waveform of specified WAV file.
+    '''
+    app_epilog = '''
+examples:
+    generate --help
+    '''
+    parser = ArgumentParser(description=app_description, epilog=app_epilog, formatter_class=RawDescriptionHelpFormatter)
+    parser.add_argument('--verbose', '-v', action='count',  default=0,                  help='Set verbosity: -v for verbose, -vv for debug messages (lots of sample data)')
+    parser.add_argument('--start',                          default=0,      type=int,   help='The first sample to plot.')
+    parser.add_argument('--end',                            default=0,      type=int,   help='The last sample to plot (default entire file).')
+    parser.add_argument('--channels',  nargs='+',           default=0,      type=int,   help='Which signal channels (zero-indexed, whitespace-separated) to plot.')
+    parser.add_argument('--plotfile', '-o',                 default='plot.png', type=str, help='Name of the output file, in png format.')
+    parser.add_argument('--show',      action='store_true', default=False,              help='Show the plot interactively, overriding write to file.')
+    parser.add_argument('filename',                         default='filename.wav',type=str, help='The WAV file to read.')
+
+    args = parser.parse_args()
+
+    app = PlotWave(args)
+    exit(app.main())
+
+# vi:set ts=4 sw=4 expandtab:
+
